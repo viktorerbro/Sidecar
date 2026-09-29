@@ -43,6 +43,14 @@ local function PlaceShownFrames()
     end
 end
 
+-- The scale the client would pick if the window were only the main monitor (0.64 is its floor when uiScale is off).
+local function MainMonitorScale(mainHeight)
+    if GetCVar("useUiScale") == "1" then
+        return tonumber(GetCVar("uiScale")) or 1
+    end
+    return math.max(768 / mainHeight, 0.64)
+end
+
 -- Edit Mode and other addons lay out against UIParent, so UIParent itself must cover only the main monitor.
 local function ApplyLayout()
     if not IsConfigured() then return end
@@ -53,13 +61,19 @@ local function ApplyLayout()
     layoutPending = false
 
     local physW, physH = GetPhysicalScreenSize()
-    local unitsPerPixel = UIParent:GetHeight() / physH
+    local mainHeight = db.mainHeight or physH
+    -- The client scales for the whole window's height, which blows the HUD up when the other monitor is taller.
+    local scale = MainMonitorScale(mainHeight) * mainHeight / physH
+    if math.abs(UIParent:GetScale() - scale) > 0.00001 then
+        UIParent:SetScale(scale)
+    end
+
+    local unitsPerPixel = 768 / (physH * scale)
     local left = db.side == "left" and (physW - db.mainWidth) * unitsPerPixel or 0
 
     UIParent:ClearAllPoints()
-    UIParent:SetPoint("TOPLEFT", nil, "TOPLEFT", left, 0)
-    UIParent:SetPoint("BOTTOMLEFT", nil, "BOTTOMLEFT", left, 0)
-    UIParent:SetWidth(db.mainWidth * unitsPerPixel)
+    UIParent:SetPoint("TOPLEFT", nil, "TOPLEFT", left, -(db.mainTop or 0) * unitsPerPixel)
+    UIParent:SetSize(db.mainWidth * unitsPerPixel, mainHeight * unitsPerPixel)
 
     WorldFrame:ClearAllPoints()
     WorldFrame:SetAllPoints(UIParent)
@@ -168,10 +182,11 @@ local function PanelUnderMouse()
 end
 
 local function PrintHelp()
-    local physW = GetPhysicalScreenSize()
-    Print(("window is %d px wide, main monitor %s, second monitor on the %s."):format(
-        physW, db.mainWidth and (db.mainWidth .. " px") or "not set", db.side or "?"))
-    Print("/sidecar main <main monitor width px> <left|right: side the second monitor is on>")
+    local physW, physH = GetPhysicalScreenSize()
+    local main = db.mainWidth and ("%dx%d px, %d px from the top"):format(db.mainWidth, db.mainHeight or physH, db.mainTop or 0)
+    Print(("window is %dx%d px, main monitor %s, second monitor on the %s."):format(
+        physW, physH, main or "not set", db.side or "?"))
+    Print("/sidecar main <width> <height> <left|right: side the second monitor is on> [px from window top to main monitor top]")
     Print("/sidecar unlock | lock - drag tracked panels between monitors")
     Print("/sidecar grab - track the panel under the mouse")
     Print("/sidecar reset - forget all panel positions")
@@ -180,15 +195,17 @@ end
 
 SLASH_SIDECAR1 = "/sidecar"
 SlashCmdList.SIDECAR = function(msg)
-    local cmd, arg1, arg2 = strsplit(" ", strtrim(msg):lower())
+    local cmd, arg1, arg2, arg3, arg4 = strsplit(" ", strtrim(msg):lower())
 
     if cmd == "main" then
-        local width = tonumber(arg1)
-        if not width or width <= 0 or width >= GetPhysicalScreenSize() or (arg2 ~= "left" and arg2 ~= "right") then
+        local physW, physH = GetPhysicalScreenSize()
+        local width, height, top = tonumber(arg1), tonumber(arg2), tonumber(arg4 or "0")
+        if not width or width <= 0 or width >= physW or not height or height <= 0 or height > physH
+            or (arg3 ~= "left" and arg3 ~= "right") or not top or top < 0 or top + height > physH then
             PrintHelp()
             return
         end
-        db.mainWidth, db.side = width, arg2
+        db.mainWidth, db.mainHeight, db.side, db.mainTop = width, height, arg3, top
         ApplyLayout()
         return
     end
