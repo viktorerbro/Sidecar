@@ -534,6 +534,10 @@ local function ShowChatBubbleAnchors()
             local names = { [WorldFrame] = "WorldFrame", [UIParent] = "UIParent", [bubble] = "bubble", [content] = "content" }
             DescribeRegionPoints(lines, "bubble", bubble, names)
             DescribeRegionPoints(lines, "text", content.String, names)
+            local _, fontSize = content.String:GetFont()
+            table.insert(lines, ("text string width %s, font size %s, content scale %s, bubble width %s"):format(
+                tostring(content.String:GetStringWidth()), tostring(fontSize), tostring(content:GetScale()),
+                tostring(bubble:GetWidth())))
             if content.Tail then DescribeRegionPoints(lines, "tail", content.Tail, names) end
             break
         end
