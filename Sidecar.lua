@@ -111,6 +111,37 @@ local function ApplyLayout()
     PlaceShownFrames()
 end
 
+local function PointPosition(left, bottom, width, height, point)
+    local x = point:find("LEFT") and left or point:find("RIGHT") and left + width or left + width / 2
+    local y = point:find("BOTTOM") and bottom or point:find("TOP") and bottom + height or bottom + height / 2
+    return x, y
+end
+
+-- StopMovingOrSizing can anchor to the screen, and Edit Mode then reuses those offsets against UIParent, which no
+-- longer covers the screen. Re-anchoring to UIParent in place hands Edit Mode offsets it can save as they are.
+local function AnchorToUIParentInPlace(frame)
+    if not IsConfigured() or frame:IsForbidden() or InCombatLockdown() then return end
+    local point, _, relativePoint = frame:GetPoint(1)
+    if not point then return end
+    local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+    local x, y = PointPosition(frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight(), point)
+    local left, bottom, width, height = UIParent:GetRect()
+    local parentX, parentY = PointPosition(left * ratio, bottom * ratio, width * ratio, height * ratio, relativePoint)
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, relativePoint, x - parentX, y - parentY)
+end
+
+local hookedEditModeFrames = {}
+
+local function HookEditModeFrames()
+    for _, frame in ipairs(EditModeManagerFrame.registeredSystemFrames) do
+        if not hookedEditModeFrames[frame] then
+            hookedEditModeFrames[frame] = true
+            hooksecurefunc(frame, "StopMovingOrSizing", AnchorToUIParentInPlace)
+        end
+    end
+end
+
 local function SavePosition(frame)
     local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
     local edgeX = db.side == "left" and UIParent:GetLeft() or UIParent:GetRight()
@@ -472,6 +503,8 @@ events:SetScript("OnEvent", function(_, event, arg)
         hooksecurefunc(UIParent, "SetPoint", function()
             if not anchoringUIParent then ApplyLayout() end
         end)
+        -- Systems from load-on-demand addons register late, so catch them each time Edit Mode opens.
+        if EditModeManagerFrame then hooksecurefunc(EditModeManagerFrame, "EnterEditMode", HookEditModeFrames) end
         ApplyLayout()
         if not IsConfigured() then
             Print("not set up yet, type /sc")
