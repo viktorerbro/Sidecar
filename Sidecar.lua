@@ -84,10 +84,18 @@ local function ScaleChatBubbleBorders()
     if not C_ChatBubbles then return end
     for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
         local content = not bubble:IsForbidden() and bubble:GetChildren()
-        if content and content.String and not content:IsForbidden()
-            and math.abs(content:GetScale() - bubbleScale) > 0.00001 then
-            content:SetScale(bubbleScale)
-            content.String:SetScale(1 / bubbleScale)
+        if content and content.String and not content:IsForbidden() then
+            if math.abs(content:GetScale() - bubbleScale) > 0.00001 then
+                content:SetScale(bubbleScale)
+                content.String:SetScale(1 / bubbleScale)
+            end
+            -- The game offsets the tail by half the unscaled text width plus the inset, which is off-center once scaled.
+            local tail = content.Tail
+            if tail and tail:GetPoint(1) == "TOPRIGHT" then
+                local y = select(5, tail:GetPoint(1))
+                tail:ClearAllPoints()
+                tail:SetPoint("TOPRIGHT", content, "BOTTOM", 0, y)
+            end
         end
     end
 end
