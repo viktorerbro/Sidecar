@@ -482,6 +482,8 @@ events:SetScript("OnEvent", function(_, event, arg)
         for _, name in ipairs({ "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
             if _G[name] then hooksecurefunc(name, PlaceShownFrames) end
         end
+        -- Runs on every loading screen and puts UIParent's TOPLEFT back on the window's corner.
+        if UpdateUIParentPosition then hooksecurefunc("UpdateUIParentPosition", ApplyLayout) end
         -- There is no event for a new bubble.
         if C_ChatBubbles and C_ChatBubbles.GetAllChatBubbles then C_Timer.NewTicker(0.1, ScaleChatBubbles) end
         ApplyLayout()
