@@ -67,6 +67,17 @@ local function MainMonitorScale(mainHeight)
     return math.max(768 / mainHeight, 0.64)
 end
 
+local bubbleFontSize
+
+-- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's. Scaling a
+-- bubble frame pulls it off the speaker and its border is anchored around its text, so only the shared font shrinks.
+local function ScaleChatBubbleFont(factor)
+    if not ChatBubbleFont then return end
+    local path, size, flags = ChatBubbleFont:GetFont()
+    bubbleFontSize = bubbleFontSize or size
+    ChatBubbleFont:SetFont(path, bubbleFontSize * factor, flags)
+end
+
 -- Edit Mode and other addons lay out against UIParent, so UIParent itself must cover only the main monitor.
 local function ApplyLayout()
     if not IsConfigured() then return end
@@ -96,37 +107,8 @@ local function ApplyLayout()
     WorldFrame:ClearAllPoints()
     WorldFrame:SetAllPoints(UIParent)
 
+    ScaleChatBubbleFont(mainHeight / physH)
     PlaceShownFrames()
-end
-
-local hookedBubbles = {}
-
-local function FitBubbleContent(bubble)
-    if bubble:IsForbidden() then return end
-    local content = bubble:GetChildren()
-    if not content or content:IsForbidden() then return end
-    local _, physH = GetPhysicalScreenSize()
-    content:SetScale((db.mainHeight or physH) / physH)
-    content:ClearAllPoints()
-    -- The tail sits at the bottom middle, over the speaker's head.
-    content:SetPoint("BOTTOM", bubble, "BOTTOM")
-    content:SetSize(bubble:GetSize())
-end
-
--- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
--- Scaling the bubble itself also scales its offset from WorldFrame and pulls it off the speaker, so only its content shrinks.
-local function ScaleChatBubbles()
-    if not IsConfigured() then return end
-    for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
-        if not bubble:IsForbidden() then
-            if not hookedBubbles[bubble] then
-                hookedBubbles[bubble] = true
-                -- Pooled bubbles resize for each new message.
-                bubble:HookScript("OnSizeChanged", FitBubbleContent)
-            end
-            FitBubbleContent(bubble)
-        end
-    end
 end
 
 local function SavePosition(frame)
@@ -490,8 +472,6 @@ events:SetScript("OnEvent", function(_, event, arg)
         hooksecurefunc(UIParent, "SetPoint", function()
             if not anchoringUIParent then ApplyLayout() end
         end)
-        -- There is no event for a new bubble.
-        if C_ChatBubbles and C_ChatBubbles.GetAllChatBubbles then C_Timer.NewTicker(0.1, ScaleChatBubbles) end
         ApplyLayout()
         if not IsConfigured() then
             Print("not set up yet, type /sc")
