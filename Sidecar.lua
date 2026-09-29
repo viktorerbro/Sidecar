@@ -68,14 +68,28 @@ local function MainMonitorScale(mainHeight)
 end
 
 local bubbleFontSize
+local bubbleScale = 1
 
--- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's. Scaling a
--- bubble frame pulls it off the speaker and its border is anchored around its text, so only the shared font shrinks.
-local function ScaleChatBubbleFont(factor)
+-- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
+local function ScaleChatBubbleFont()
     if not ChatBubbleFont then return end
     local path, size, flags = ChatBubbleFont:GetFont()
     bubbleFontSize = bubbleFontSize or size
-    ChatBubbleFont:SetFont(path, bubbleFontSize * factor, flags)
+    ChatBubbleFont:SetFont(path, bubbleFontSize * bubbleScale, flags)
+end
+
+-- The border and tail are drawn around the text, which the game anchors to WorldFrame at the speaker's head. Scaling
+-- the border's frame would scale that anchor too, so the text takes the inverse scale and shrinks by font instead.
+local function ScaleChatBubbleBorders()
+    if not C_ChatBubbles then return end
+    for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
+        local content = not bubble:IsForbidden() and bubble:GetChildren()
+        if content and content.String and not content:IsForbidden()
+            and math.abs(content:GetScale() - bubbleScale) > 0.00001 then
+            content:SetScale(bubbleScale)
+            content.String:SetScale(1 / bubbleScale)
+        end
+    end
 end
 
 local scriptErrorsFrameCentered = false
@@ -127,7 +141,9 @@ local function ApplyLayout()
     WorldFrame:ClearAllPoints()
     WorldFrame:SetAllPoints(UIParent)
 
-    ScaleChatBubbleFont(mainHeight / physH)
+    bubbleScale = mainHeight / physH
+    ScaleChatBubbleFont()
+    ScaleChatBubbleBorders()
     FitScriptErrorsFrame()
     PlaceShownFrames()
 end
@@ -595,6 +611,14 @@ events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 events:RegisterEvent("UI_SCALE_CHANGED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- There is no bubble-created event; bubbles are pooled, so each new one shows up with the chat that makes it.
+local bubbleEvents = {
+    CHAT_MSG_SAY = true, CHAT_MSG_YELL = true, CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
+    CHAT_MSG_MONSTER_SAY = true, CHAT_MSG_MONSTER_YELL = true, CHAT_MSG_MONSTER_PARTY = true,
+}
+for event in pairs(bubbleEvents) do
+    events:RegisterEvent(event)
+end
 events:SetScript("OnEvent", function(_, event, arg)
     if event == "ADDON_LOADED" then
         if arg == ADDON then
@@ -626,6 +650,10 @@ events:SetScript("OnEvent", function(_, event, arg)
         if not IsConfigured() then
             Print("not set up yet, type /sc")
         end
+        return
+    end
+    if bubbleEvents[event] then
+        if IsConfigured() then C_Timer.After(0, ScaleChatBubbleBorders) end
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
