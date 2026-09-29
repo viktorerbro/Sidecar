@@ -96,24 +96,32 @@ local function ApplyLayout()
     PlaceShownFrames()
 end
 
-local bubbleScales = {}
+local hookedBubbles = {}
+
+local function FitBubbleContent(bubble)
+    if bubble:IsForbidden() then return end
+    local content = bubble:GetChildren()
+    if not content or content:IsForbidden() then return end
+    local _, physH = GetPhysicalScreenSize()
+    content:SetScale((db.mainHeight or physH) / physH)
+    content:ClearAllPoints()
+    -- The tail sits at the bottom middle, over the speaker's head.
+    content:SetPoint("BOTTOM", bubble, "BOTTOM")
+    content:SetSize(bubble:GetSize())
+end
 
 -- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
+-- Scaling the bubble itself also scales its offset from WorldFrame and pulls it off the speaker, so only its content shrinks.
 local function ScaleChatBubbles()
     if not IsConfigured() then return end
-    local _, physH = GetPhysicalScreenSize()
-    local factor = (db.mainHeight or physH) / physH
     for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
         if not bubble:IsForbidden() then
-            local current = bubble:GetScale()
-            local state = bubbleScales[bubble]
-            -- Pooled bubbles get their scale reset when reused.
-            if not state or math.abs(current - state.applied) > 0.00001 then
-                state = { original = current }
-                bubbleScales[bubble] = state
+            if not hookedBubbles[bubble] then
+                hookedBubbles[bubble] = true
+                -- Pooled bubbles resize for each new message.
+                bubble:HookScript("OnSizeChanged", FitBubbleContent)
             end
-            state.applied = state.original * factor
-            if math.abs(current - state.applied) > 0.00001 then bubble:SetScale(state.applied) end
+            FitBubbleContent(bubble)
         end
     end
 end
