@@ -67,35 +67,39 @@ local function MainMonitorScale(mainHeight)
     return math.max(768 / mainHeight, 0.64)
 end
 
-local bubbleFontSize
 local bubbleScale = 1
+local correctedTextAnchors = setmetatable({}, { __mode = "k" })
+local hookedBubbles = setmetatable({}, { __mode = "k" })
 
--- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
-local function ScaleChatBubbleFont()
-    if not ChatBubbleFont then return end
-    local path, size, flags = ChatBubbleFont:GetFont()
-    bubbleFontSize = bubbleFontSize or size
-    ChatBubbleFont:SetFont(path, bubbleFontSize * bubbleScale, flags)
+-- The game keeps anchoring the text to the speaker's head in WorldFrame units, which the bubble's scale would shrink
+-- toward the screen's bottom-left, so each new anchor it writes is divided back out.
+local function CorrectChatBubbleTextAnchor(content)
+    local text = content.String
+    local point, relativeTo, relativePoint, x, y = text:GetPoint(1)
+    if relativeTo ~= WorldFrame then return end
+    local corrected = correctedTextAnchors[text]
+    if corrected and math.abs(corrected.x - x) < 0.01 and math.abs(corrected.y - y) < 0.01 then return end
+    local scale = content:GetEffectiveScale() / WorldFrame:GetEffectiveScale()
+    corrected = corrected or {}
+    corrected.x, corrected.y = x / scale, y / scale
+    correctedTextAnchors[text] = corrected
+    text:SetPoint(point, relativeTo, relativePoint, corrected.x, corrected.y)
 end
 
--- The border and tail are drawn around the text, which the game anchors to WorldFrame at the speaker's head. Scaling
--- the border's frame would scale that anchor too, so the text takes the inverse scale and shrinks by font instead.
-local function ScaleChatBubbleBorders()
+-- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
+local function ScaleChatBubbles()
     if not C_ChatBubbles then return end
     for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
         local content = not bubble:IsForbidden() and bubble:GetChildren()
         if content and content.String and not content:IsForbidden() then
             if math.abs(content:GetScale() - bubbleScale) > 0.00001 then
                 content:SetScale(bubbleScale)
-                content.String:SetScale(1 / bubbleScale)
             end
-            -- The game offsets the tail by half the unscaled text width plus the inset, which is off-center once scaled.
-            local tail = content.Tail
-            if tail and tail:GetPoint(1) == "TOPRIGHT" then
-                local y = select(5, tail:GetPoint(1))
-                tail:ClearAllPoints()
-                tail:SetPoint("TOPRIGHT", content, "BOTTOM", 0, y)
+            if not hookedBubbles[content] then
+                hookedBubbles[content] = true
+                content:HookScript("OnUpdate", CorrectChatBubbleTextAnchor)
             end
+            CorrectChatBubbleTextAnchor(content)
         end
     end
 end
@@ -151,8 +155,7 @@ local function ApplyLayout()
 
     -- WorldFrame's effective scale is 1, so this makes bubbles follow the UI scale like the rest of the HUD.
     bubbleScale = scale
-    ScaleChatBubbleFont()
-    ScaleChatBubbleBorders()
+    ScaleChatBubbles()
     FitScriptErrorsFrame()
     PlaceShownFrames()
 end
@@ -666,7 +669,7 @@ events:SetScript("OnEvent", function(_, event, arg)
         return
     end
     if bubbleEvents[event] then
-        if IsConfigured() then C_Timer.After(0, ScaleChatBubbleBorders) end
+        if IsConfigured() then C_Timer.After(0, ScaleChatBubbles) end
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
