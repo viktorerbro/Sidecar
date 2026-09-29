@@ -81,6 +81,28 @@ local function ApplyLayout()
     PlaceShownFrames()
 end
 
+local bubbleScales = {}
+
+-- Bubbles live under WorldFrame, which the client scales for the whole window's height, not UIParent's.
+local function ScaleChatBubbles()
+    if not IsConfigured() then return end
+    local _, physH = GetPhysicalScreenSize()
+    local factor = (db.mainHeight or physH) / physH
+    for _, bubble in pairs(C_ChatBubbles.GetAllChatBubbles()) do
+        if not bubble:IsForbidden() then
+            local current = bubble:GetScale()
+            local state = bubbleScales[bubble]
+            -- Pooled bubbles get their scale reset when reused.
+            if not state or math.abs(current - state.applied) > 0.00001 then
+                state = { original = current }
+                bubbleScales[bubble] = state
+            end
+            state.applied = state.original * factor
+            if math.abs(current - state.applied) > 0.00001 then bubble:SetScale(state.applied) end
+        end
+    end
+end
+
 local function SavePosition(frame)
     local name = frame:GetName()
     local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
@@ -440,6 +462,8 @@ events:SetScript("OnEvent", function(_, event, arg)
         for _, name in ipairs({ "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
             if _G[name] then hooksecurefunc(name, PlaceShownFrames) end
         end
+        -- There is no event for a new bubble.
+        if C_ChatBubbles and C_ChatBubbles.GetAllChatBubbles then C_Timer.NewTicker(0.1, ScaleChatBubbles) end
         ApplyLayout()
         if not IsConfigured() then
             Print("not set up yet, type /sc")
