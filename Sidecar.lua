@@ -150,6 +150,183 @@ local function SetUnlocked(value)
     end
 end
 
+local function SetMain(width, height, side, top)
+    local physW, physH = GetPhysicalScreenSize()
+    if not width or width <= 0 or width >= physW or not height or height <= 0 or height > physH
+        or (side ~= "left" and side ~= "right") or not top or top < 0 or top + height > physH then
+        return false
+    end
+    db.mainWidth, db.mainHeight, db.side, db.mainTop = width, height, side, top
+    ApplyLayout()
+    return true
+end
+
+local function NativeSize(monitor)
+    local ok, sizes = pcall(C_VideoOptions.GetGameWindowSizes, monitor, true)
+    if not ok or type(sizes) ~= "table" then return nil end
+    local best
+    for _, size in ipairs(sizes) do
+        if not best or size.x * size.y > best.x * best.y then best = size end
+    end
+    return best
+end
+
+-- WoW can't see how Windows arranges the monitors, only their sizes, so side and alignment stay the user's call.
+local function DetectMainSize()
+    if not (C_VideoOptions and C_VideoOptions.GetGameWindowSizes and GetMonitorCount) then
+        return nil, "this client can't list monitors"
+    end
+    local physW, physH = GetPhysicalScreenSize()
+    local sizes, found = {}, {}
+    for i = 0, GetMonitorCount() do
+        local size = NativeSize(i)
+        if size and size.x < physW and size.y <= physH then
+            sizes[i] = size
+            tinsert(found, ("%dx%d"):format(size.x, size.y))
+        end
+    end
+    local report = "monitors: " .. (#found > 0 and table.concat(found, ", ") or "none")
+    local preferred = sizes[tonumber(GetCVar("gxMonitor")) or 0]
+    for _, size in pairs(sizes) do
+        for _, other in pairs(sizes) do
+            -- Side by side, the two widths fill the window; prefer the monitor the game was started on.
+            if size ~= other and size.x + other.x == physW and (not preferred or preferred == size) then
+                return size, report
+            end
+        end
+    end
+    return preferred, report
+end
+
+local menu
+
+local function CreateMenu()
+    local f = CreateFrame("Frame", "SidecarMenu", UIParent, "BasicFrameTemplateWithInset")
+    f:SetSize(320, 250)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("DIALOG")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    tinsert(UISpecialFrames, "SidecarMenu")
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("TOP", 0, -5)
+    title:SetText("Sidecar")
+
+    local function Label(text, x, y)
+        local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", x, y)
+        label:SetText(text)
+    end
+
+    local function NumberBox(x, y)
+        local box = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+        box:SetSize(50, 20)
+        box:SetPoint("TOPLEFT", x, y)
+        box:SetAutoFocus(false)
+        box:SetNumeric(true)
+        box:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            f.apply()
+        end)
+        return box
+    end
+
+    local function Button(text, width, x, y, onClick)
+        local button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        button:SetSize(width, 22)
+        button:SetPoint("TOPLEFT", x, y)
+        button:SetText(text)
+        button:SetScript("OnClick", onClick)
+        return button
+    end
+
+    Label("Main monitor", 16, -36)
+    f.width = NumberBox(130, -32)
+    Label("x", 186, -36)
+    f.height = NumberBox(204, -32)
+    Label("Px from top", 16, -62)
+    f.top = NumberBox(130, -58)
+
+    local status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    status:SetPoint("BOTTOMLEFT", 16, 14)
+    status:SetPoint("BOTTOMRIGHT", -16, 14)
+    status:SetJustifyH("LEFT")
+    f.status = status
+
+    f.side = db.side or "right"
+    f.apply = function()
+        local width, height, top = tonumber(f.width:GetText()), tonumber(f.height:GetText()), tonumber(f.top:GetText())
+        if SetMain(width, height, f.side, top) then
+            status:SetText(("Main %dx%d, %d px from top, second monitor %s."):format(width, height, top, f.side))
+            return
+        end
+        local physW, physH = GetPhysicalScreenSize()
+        status:SetText(("Doesn't fit the %dx%d window."):format(physW, physH))
+    end
+
+    local function Align(fraction)
+        local _, physH = GetPhysicalScreenSize()
+        local height = tonumber(f.height:GetText()) or physH
+        f.top:SetText(math.floor((physH - height) * fraction + 0.5))
+        f.apply()
+    end
+
+    local function SetSide(side)
+        f.side = side
+        f.apply()
+    end
+
+    Label("Second monitor", 16, -92)
+    Button("Left", 60, 130, -88, function() SetSide("left") end)
+    Button("Right", 60, 196, -88, function() SetSide("right") end)
+    Label("Align", 16, -120)
+    Button("Top", 50, 130, -116, function() Align(0) end)
+    Button("Middle", 56, 182, -116, function() Align(0.5) end)
+    Button("Bottom", 56, 240, -116, function() Align(1) end)
+
+    Button("Detect", 80, 16, -150, function()
+        local size, report = DetectMainSize()
+        if not size then
+            status:SetText("Couldn't detect (" .. report .. "). Type the size in.")
+            return
+        end
+        f.width:SetText(size.x)
+        f.height:SetText(size.y)
+        Align(0.5)
+        status:SetText(status:GetText() .. "\n" .. report .. ". Now pick side and align.")
+    end)
+    Button("Apply", 80, 104, -150, function() f.apply() end)
+    f.unlock = Button("Unlock panels", 100, 16, -178, function()
+        SetUnlocked(not unlocked)
+        f.unlock:SetText(unlocked and "Lock panels" or "Unlock panels")
+    end)
+    Button("Off", 60, 124, -178, function()
+        db.mainWidth = nil
+        ReloadUI()
+    end)
+
+    f:SetScript("OnShow", function()
+        local physW, physH = GetPhysicalScreenSize()
+        f.width:SetText(db.mainWidth or "")
+        f.height:SetText(db.mainHeight or physH)
+        f.top:SetText(db.mainTop or 0)
+        f.side = db.side or "right"
+        f.unlock:SetText(unlocked and "Lock panels" or "Unlock panels")
+        status:SetText(("Window is %dx%d."):format(physW, physH))
+    end)
+    f:Hide()
+    return f
+end
+
+local function ToggleMenu()
+    menu = menu or CreateMenu()
+    menu:SetShown(not menu:IsShown())
+end
+
 local function OnTrackedShow(frame)
     PlaceFrame(frame)
     -- Some panels anchor themselves after OnShow; place again once they're done.
@@ -186,6 +363,7 @@ local function PrintHelp()
     local main = db.mainWidth and ("%dx%d px, %d px from the top"):format(db.mainWidth, db.mainHeight or physH, db.mainTop or 0)
     Print(("window is %dx%d px, main monitor %s, second monitor on the %s."):format(
         physW, physH, main or "not set", db.side or "?"))
+    Print("/sc - open the settings menu")
     Print("/sidecar main <width> <height> <left|right: side the second monitor is on> [px from window top to main monitor top]")
     Print("/sidecar unlock | lock - drag tracked panels between monitors")
     Print("/sidecar grab - track the panel under the mouse")
@@ -194,19 +372,16 @@ local function PrintHelp()
 end
 
 SLASH_SIDECAR1 = "/sidecar"
+SLASH_SIDECAR2 = "/sc"
 SlashCmdList.SIDECAR = function(msg)
     local cmd, arg1, arg2, arg3, arg4 = strsplit(" ", strtrim(msg):lower())
 
+    if cmd == "" then
+        ToggleMenu()
+        return
+    end
     if cmd == "main" then
-        local physW, physH = GetPhysicalScreenSize()
-        local width, height, top = tonumber(arg1), tonumber(arg2), tonumber(arg4 or "0")
-        if not width or width <= 0 or width >= physW or not height or height <= 0 or height > physH
-            or (arg3 ~= "left" and arg3 ~= "right") or not top or top < 0 or top + height > physH then
-            PrintHelp()
-            return
-        end
-        db.mainWidth, db.mainHeight, db.side, db.mainTop = width, height, arg3, top
-        ApplyLayout()
+        if not SetMain(tonumber(arg1), tonumber(arg2), arg3, tonumber(arg4 or "0")) then PrintHelp() end
         return
     end
     if cmd == "unlock" then
@@ -267,7 +442,7 @@ events:SetScript("OnEvent", function(_, event, arg)
         end
         ApplyLayout()
         if not IsConfigured() then
-            Print("not set up yet, type /sidecar")
+            Print("not set up yet, type /sc")
         end
         return
     end
