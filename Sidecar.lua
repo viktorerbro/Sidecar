@@ -43,12 +43,10 @@ local function IsInPanelSlot(frame)
     return false
 end
 
--- Blizzard closes whatever holds a UIPanel slot when another panel opens, so panels on the second monitor give theirs
--- up. Editing UIPanelWindows would do the same but taints Forever's protected UI.
+-- Blizzard closes whatever holds a UIPanel slot when another panel opens, so tracked panels give theirs up.
+-- Editing UIPanelWindows would do the same but taints Forever's protected UI.
 local function ReleasePanelSlot(frame)
-    if not GetUIPanel or InCombatLockdown() or not db.positions[frame:GetName()] or not IsInPanelSlot(frame) then
-        return
-    end
+    if not GetUIPanel or InCombatLockdown() or not IsInPanelSlot(frame) then return end
     HideUIPanel(frame, true)
     frame:Show()
 end
@@ -121,16 +119,9 @@ local function ScaleChatBubbles()
 end
 
 local function SavePosition(frame)
-    local name = frame:GetName()
     local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
-    local centerX = frame:GetCenter() / ratio
-    if centerX >= UIParent:GetLeft() and centerX <= UIParent:GetRight() then
-        db.positions[name] = nil
-        Print(name .. " is back on the main monitor.")
-        return
-    end
     local edgeX = db.side == "left" and UIParent:GetLeft() or UIParent:GetRight()
-    db.positions[name] = {
+    db.positions[frame:GetName()] = {
         x = frame:GetLeft() - edgeX * ratio,
         y = frame:GetTop() - UIParent:GetTop() * ratio,
     }
@@ -498,6 +489,9 @@ events:SetScript("OnEvent", function(_, event, arg)
     if event == "PLAYER_REGEN_ENABLED" then
         if layoutPending then ApplyLayout() end
         PlaceShownFrames()
+        for frame in pairs(hooked) do
+            if frame:IsShown() then ReleasePanelSlot(frame) end
+        end
         return
     end
     ApplyLayout()
