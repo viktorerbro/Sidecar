@@ -90,6 +90,14 @@ local function FitScriptErrorsFrame()
     ScriptErrorsFrame:SetPoint("CENTER", UIParent, "CENTER")
 end
 
+-- Blizzard offsets the cursor from the window's bottom but anchors to UIParent's, which pushes context menus up.
+local function AnchorRegionToCursorOnUIParent(region, point)
+    if not IsConfigured() or region:IsForbidden() or GetAppropriateTopLevelParent() ~= UIParent then return end
+    local x, y = InputUtil.GetCursorPosition(UIParent)
+    region:ClearAllPoints()
+    region:SetPoint(point, UIParent, "BOTTOMLEFT", x - UIParent:GetLeft(), y - UIParent:GetBottom())
+end
+
 -- Edit Mode and other addons lay out against UIParent, so UIParent itself must cover only the main monitor.
 local function ApplyLayout()
     if not IsConfigured() then return end
@@ -555,6 +563,9 @@ events:SetScript("OnEvent", function(_, event, arg)
         end)
         -- Systems from load-on-demand addons register late, so catch them each time Edit Mode opens.
         if EditModeManagerFrame then hooksecurefunc(EditModeManagerFrame, "EnterEditMode", HookEditModeFrames) end
+        if InputUtil and InputUtil.AnchorRegionToCursor then
+            hooksecurefunc(InputUtil, "AnchorRegionToCursor", AnchorRegionToCursorOnUIParent)
+        end
         ApplyLayout()
         if not IsConfigured() then
             Print("not set up yet, type /sc")
