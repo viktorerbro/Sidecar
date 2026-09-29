@@ -501,62 +501,6 @@ local function PanelUnderMouse()
     return focus
 end
 
-local function DescribeRegionPoints(lines, label, region, names)
-    local left, bottom, width, height = region:GetRect()
-    table.insert(lines, ("%s rect %s %s %s %s, scale %s"):format(label, tostring(left), tostring(bottom),
-        tostring(width), tostring(height), tostring(region.GetScale and region:GetScale())))
-    for i = 1, region:GetNumPoints() do
-        local point, relativeTo, relativePoint, x, y = region:GetPoint(i)
-        table.insert(lines, ("%s point %d: %s to %s %s, %.1f %.1f"):format(label, i, point,
-            names[relativeTo] or tostring(relativeTo), relativePoint, x, y))
-    end
-end
-
-local copyFrame
-
-local function ShowCopyableText(text)
-    if not copyFrame then
-        copyFrame = CreateFrame("Frame", "SidecarCopyFrame", UIParent, "BasicFrameTemplateWithInset")
-        copyFrame:SetSize(600, 400)
-        copyFrame:SetPoint("CENTER")
-        copyFrame:SetFrameStrata("DIALOG")
-        local scroll = CreateFrame("ScrollFrame", nil, copyFrame, "UIPanelScrollFrameTemplate")
-        scroll:SetPoint("TOPLEFT", 12, -30)
-        scroll:SetPoint("BOTTOMRIGHT", -32, 10)
-        local editBox = CreateFrame("EditBox", nil, scroll)
-        editBox:SetMultiLine(true)
-        editBox:SetFontObject(ChatFontNormal)
-        editBox:SetWidth(550)
-        editBox:SetAutoFocus(false)
-        editBox:SetScript("OnEscapePressed", function() copyFrame:Hide() end)
-        scroll:SetScrollChild(editBox)
-        copyFrame.editBox = editBox
-    end
-    copyFrame:Show()
-    copyFrame.editBox:SetText(text)
-    copyFrame.editBox:SetFocus()
-    copyFrame.editBox:HighlightText()
-end
-
-local function ShowChatBubbleAnchors()
-    local lines = { "WorldFrame scale " .. WorldFrame:GetEffectiveScale() }
-    for _, bubble in ipairs(C_ChatBubbles.GetAllChatBubbles()) do
-        local content = bubble:GetChildren()
-        if bubble:IsVisible() and content and content.String then
-            local names = { [WorldFrame] = "WorldFrame", [UIParent] = "UIParent", [bubble] = "bubble", [content] = "content" }
-            DescribeRegionPoints(lines, "bubble", bubble, names)
-            DescribeRegionPoints(lines, "text", content.String, names)
-            local _, fontSize = content.String:GetFont()
-            table.insert(lines, ("text string width %s, font size %s, content scale %s, bubble width %s"):format(
-                tostring(content.String:GetStringWidth()), tostring(fontSize), tostring(content:GetScale()),
-                tostring(bubble:GetWidth())))
-            if content.Tail then DescribeRegionPoints(lines, "tail", content.Tail, names) end
-            break
-        end
-    end
-    ShowCopyableText(table.concat(lines, "\n"))
-end
-
 local function PrintHelp()
     local physW, physH = GetPhysicalScreenSize()
     local main = db.mainWidth and ("%dx%d px, %d px from the top"):format(db.mainWidth, db.mainHeight or physH, db.mainTop or 0)
@@ -601,10 +545,6 @@ SlashCmdList.SIDECAR = function(msg)
         HookFrame(panel)
         if unlocked then ShowOverlay(panel) end
         Print("tracking " .. panel:GetName() .. ".")
-        return
-    end
-    if cmd == "bubbles" then
-        ShowChatBubbleAnchors()
         return
     end
     if cmd == "reset" then
