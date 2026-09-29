@@ -149,7 +149,8 @@ local function ApplyLayout()
     WorldFrame:ClearAllPoints()
     WorldFrame:SetAllPoints(UIParent)
 
-    bubbleScale = mainHeight / physH
+    -- WorldFrame's effective scale is 1, so this makes bubbles follow the UI scale like the rest of the HUD.
+    bubbleScale = scale
     ScaleChatBubbleFont()
     ScaleChatBubbleBorders()
     FitScriptErrorsFrame()
