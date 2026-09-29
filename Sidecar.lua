@@ -36,6 +36,23 @@ local function PlaceFrame(frame)
     frame:SetPoint("TOPLEFT", UIParent, OffhandEdge(), pos.x, pos.y)
 end
 
+local function IsInPanelSlot(frame)
+    for _, area in ipairs({ "left", "center", "right", "doublewide", "fullscreen" }) do
+        if GetUIPanel(area) == frame then return true end
+    end
+    return false
+end
+
+-- Blizzard closes whatever holds a UIPanel slot when another panel opens, so panels on the second monitor give theirs
+-- up. Editing UIPanelWindows would do the same but taints Forever's protected UI.
+local function ReleasePanelSlot(frame)
+    if not GetUIPanel or InCombatLockdown() or not db.positions[frame:GetName()] or not IsInPanelSlot(frame) then
+        return
+    end
+    HideUIPanel(frame, true)
+    frame:Show()
+end
+
 local function PlaceShownFrames()
     for name in pairs(db.positions) do
         local frame = _G[name]
@@ -134,6 +151,7 @@ local function StopDrag(frame)
     frame:SetUserPlaced(false)
     SavePosition(frame)
     PlaceFrame(frame)
+    ReleasePanelSlot(frame)
 end
 
 local function ShowOverlay(frame)
@@ -351,8 +369,11 @@ end
 
 local function OnTrackedShow(frame)
     PlaceFrame(frame)
-    -- Some panels anchor themselves after OnShow; place again once they're done.
-    C_Timer.After(0, function() PlaceFrame(frame) end)
+    -- Some panels anchor themselves after OnShow, and ShowUIPanel only claims the slot after it; act once they're done.
+    C_Timer.After(0, function()
+        PlaceFrame(frame)
+        ReleasePanelSlot(frame)
+    end)
     if unlocked then ShowOverlay(frame) end
 end
 
