@@ -473,6 +473,33 @@ local function PanelUnderMouse()
     return focus
 end
 
+local function PrintRegionPoints(label, region, names)
+    local left, bottom, width, height = region:GetRect()
+    Print(("%s rect %s %s %s %s, scale %s"):format(label, tostring(left), tostring(bottom), tostring(width),
+        tostring(height), tostring(region.GetScale and region:GetScale())))
+    for i = 1, region:GetNumPoints() do
+        local point, relativeTo, relativePoint, x, y = region:GetPoint(i)
+        Print(("%s point %d: %s to %s %s, %.1f %.1f"):format(label, i, point, names[relativeTo] or tostring(relativeTo),
+            relativePoint, x, y))
+    end
+end
+
+local function PrintChatBubbles()
+    local bubbles = C_ChatBubbles.GetAllChatBubbles()
+    Print(#bubbles .. " bubbles, WorldFrame scale " .. WorldFrame:GetEffectiveScale())
+    for _, bubble in ipairs(bubbles) do
+        local content = bubble:GetChildren()
+        local names = { [WorldFrame] = "WorldFrame", [UIParent] = "UIParent", [bubble] = "bubble" }
+        PrintRegionPoints("bubble", bubble, names)
+        if content then
+            names[content] = "content"
+            PrintRegionPoints("content", content, names)
+            if content.String then PrintRegionPoints("text", content.String, names) end
+            if content.Tail then PrintRegionPoints("tail", content.Tail, names) end
+        end
+    end
+end
+
 local function PrintHelp()
     local physW, physH = GetPhysicalScreenSize()
     local main = db.mainWidth and ("%dx%d px, %d px from the top"):format(db.mainWidth, db.mainHeight or physH, db.mainTop or 0)
@@ -517,6 +544,10 @@ SlashCmdList.SIDECAR = function(msg)
         HookFrame(panel)
         if unlocked then ShowOverlay(panel) end
         Print("tracking " .. panel:GetName() .. ".")
+        return
+    end
+    if cmd == "bubbles" then
+        PrintChatBubbles()
         return
     end
     if cmd == "reset" then
