@@ -78,6 +78,18 @@ local function ScaleChatBubbleFont(factor)
     ChatBubbleFont:SetFont(path, bubbleFontSize * factor, flags)
 end
 
+local scriptErrorsFrameCentered = false
+
+-- The error frame has no parent, so it scales and centers on the whole window instead of the main monitor.
+local function FitScriptErrorsFrame()
+    if not ScriptErrorsFrame or ScriptErrorsFrame:IsForbidden() or InCombatLockdown() then return end
+    ScriptErrorsFrame:SetScale(UIParent:GetEffectiveScale())
+    if scriptErrorsFrameCentered then return end
+    scriptErrorsFrameCentered = true
+    ScriptErrorsFrame:ClearAllPoints()
+    ScriptErrorsFrame:SetPoint("CENTER", UIParent, "CENTER")
+end
+
 -- Edit Mode and other addons lay out against UIParent, so UIParent itself must cover only the main monitor.
 local function ApplyLayout()
     if not IsConfigured() then return end
@@ -108,6 +120,7 @@ local function ApplyLayout()
     WorldFrame:SetAllPoints(UIParent)
 
     ScaleChatBubbleFont(mainHeight / physH)
+    FitScriptErrorsFrame()
     PlaceShownFrames()
 end
 
@@ -120,15 +133,49 @@ end
 -- StopMovingOrSizing can anchor to the screen, and Edit Mode then reuses those offsets against UIParent, which no
 -- longer covers the screen. Re-anchoring to UIParent in place hands Edit Mode offsets it can save as they are.
 local function AnchorToUIParentInPlace(frame)
-    if not IsConfigured() or frame:IsForbidden() or InCombatLockdown() then return end
+    -- Edit Mode also calls StopMovingOrSizing on every system when it closes; only a drop has isDragging still set.
+    if not IsConfigured() or frame:IsForbidden() or InCombatLockdown() or not frame.isDragging then return end
     local point, _, relativePoint = frame:GetPoint(1)
-    if not point then return end
+    if not point or not frame:GetLeft() then return end
     local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
     local x, y = PointPosition(frame:GetLeft(), frame:GetBottom(), frame:GetWidth(), frame:GetHeight(), point)
     local left, bottom, width, height = UIParent:GetRect()
     local parentX, parentY = PointPosition(left * ratio, bottom * ratio, width * ratio, height * ratio, relativePoint)
     frame:ClearAllPoints()
     frame:SetPoint(point, UIParent, relativePoint, x - parentX, y - parentY)
+end
+
+-- Some Edit Mode offsets are measured from the screen's bottom-left but saved against UIParent's, which sits higher
+-- when the other monitor is taller.
+local function ShiftAnchorByUIParentOrigin(frame, shiftX, shiftY)
+    local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
+    local scale = frame:GetScale()
+    frame:ClearAllPoints()
+    frame:SetPoint(point, relativeTo, relativePoint,
+        x - (shiftX and UIParent:GetLeft() / scale or 0), y - (shiftY and UIParent:GetBottom() / scale or 0))
+end
+
+local function CorrectGridLineSnap(frame, frameInfo)
+    -- LEFT and BOTTOM grid line snaps carry the line's screen position as their offset; every other snap is relative.
+    if not IsConfigured() or InCombatLockdown() or frameInfo.frame ~= UIParent or frameInfo.offset == 0 then return end
+    if frameInfo.point == "LEFT" then
+        ShiftAnchorByUIParentOrigin(frame, true, false)
+    elseif frameInfo.point == "BOTTOM" then
+        ShiftAnchorByUIParentOrigin(frame, false, true)
+    end
+end
+
+local correctingAnchor = false
+
+-- BreakFrameSnap (arrow key nudges, saving buffs) saves right after its SetPoint, so only a SetPoint hook runs in time.
+local function CorrectBreakFrameSnapAnchor(frame)
+    if correctingAnchor or not IsConfigured() or InCombatLockdown() then return end
+    local point, relativeTo, relativePoint = frame:GetPoint(1)
+    if relativeTo ~= UIParent or point ~= relativePoint or (point ~= "TOPLEFT" and point ~= "TOPRIGHT") then return end
+    if not debugstack(2, 4, 0):find("BreakFrameSnap") then return end
+    correctingAnchor = true
+    ShiftAnchorByUIParentOrigin(frame, true, true)
+    correctingAnchor = false
 end
 
 local hookedEditModeFrames = {}
@@ -138,6 +185,8 @@ local function HookEditModeFrames()
         if not hookedEditModeFrames[frame] then
             hookedEditModeFrames[frame] = true
             hooksecurefunc(frame, "StopMovingOrSizing", AnchorToUIParentInPlace)
+            hooksecurefunc(frame, "SnapToFrame", CorrectGridLineSnap)
+            hooksecurefunc(frame, "SetPoint", CorrectBreakFrameSnapAnchor)
         end
     end
 end
@@ -492,6 +541,7 @@ events:SetScript("OnEvent", function(_, event, arg)
         end
         -- Load-on-demand panels only exist once their Blizzard addon loads.
         if db then HookTrackedFrames() end
+        if arg == "Blizzard_ScriptErrorsFrame" and IsConfigured() then FitScriptErrorsFrame() end
         return
     end
     if event == "PLAYER_LOGIN" then
