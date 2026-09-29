@@ -11,6 +11,7 @@ local overlays = {}
 local unlocked = false
 local dragging = nil
 local layoutPending = false
+local anchoringUIParent = false
 
 local function Print(msg)
     print("|cff33aaffSidecar|r: " .. msg)
@@ -86,9 +87,11 @@ local function ApplyLayout()
     local unitsPerPixel = 768 / (physH * scale)
     local left = db.side == "left" and (physW - db.mainWidth) * unitsPerPixel or 0
 
+    anchoringUIParent = true
     UIParent:ClearAllPoints()
     UIParent:SetPoint("TOPLEFT", nil, "TOPLEFT", left, -(db.mainTop or 0) * unitsPerPixel)
     UIParent:SetSize(db.mainWidth * unitsPerPixel, mainHeight * unitsPerPixel)
+    anchoringUIParent = false
 
     WorldFrame:ClearAllPoints()
     WorldFrame:SetAllPoints(UIParent)
@@ -482,8 +485,11 @@ events:SetScript("OnEvent", function(_, event, arg)
         for _, name in ipairs({ "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
             if _G[name] then hooksecurefunc(name, PlaceShownFrames) end
         end
-        -- Runs on every loading screen and puts UIParent's TOPLEFT back on the window's corner.
-        if UpdateUIParentPosition then hooksecurefunc("UpdateUIParentPosition", ApplyLayout) end
+        -- UpdateUIParentPosition puts UIParent's TOPLEFT back on the window's corner on every loading screen. Hooking the
+        -- SetPoint inside it fixes that before Edit Mode's hooks on UpdateUIParentPosition cache UIParent's rect for snapping.
+        hooksecurefunc(UIParent, "SetPoint", function()
+            if not anchoringUIParent then ApplyLayout() end
+        end)
         -- There is no event for a new bubble.
         if C_ChatBubbles and C_ChatBubbles.GetAllChatBubbles then C_Timer.NewTicker(0.1, ScaleChatBubbles) end
         ApplyLayout()
