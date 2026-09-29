@@ -1,0 +1,7 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## Title: Sidecar
+## Notes: Keeps the UI and 3D view on your main monitor and lets panels live on a second one.
+## SavedVariables: SidecarDB
+
+Sidecar.lua
